@@ -521,13 +521,25 @@ for split in range(nDataSplits):
 
     # Create graph
     adjacencyMatrix = data.getGraph()
-    G = graphTools.Graph('adjacency', adjacencyMatrix.shape[0],
+    
+    
+    G1 = graphTools.Graph('adjacency', adjacencyMatrix.shape[0],
                          {'adjacencyMatrix': adjacencyMatrix})
-    G.computeGFT() # Compute the GFT of the stored GSO
+    G1.computeGFT() # Compute the GFT of the stored GSO
+
+    genreMatrix = data.getGenreGraph()
+    G2 = graphTools.Graph('adjacency', genreMatrix.shape[0],
+                         {'adjacencyMatrix': adjacencyMatrix})
+    G2.computeGFT() # Compute the GFT of the stored GSO
+
+    #\\\ Ordering
+    S1 = G1.S.copy()/np.max(np.real(G1.E))
+    S2 = G2.S.copy()/np.max(np.real(G2.E))
+    S = np.stack((S1, S2), axis = 0)
 
     # And re-update the number of nodes for changes in the graph (due to
     # enforced connectedness, for instance)
-    nNodes = G.N
+    nNodes = G1.N
 
     # Once data is completely formatted and in appropriate fashion, change its
     # type to torch
@@ -596,8 +608,6 @@ for split in range(nDataSplits):
         thisBeta1 = beta1
         thisBeta2 = beta2
 
-        #\\\ Ordering
-        S = G.S.copy()/np.max(np.real(G.E))
         # Do not forget to add the GSO to the input parameters of the archit
         modelDict['GSO'] = S
         # Add the number of nodes for the no-pooling part

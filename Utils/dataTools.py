@@ -1163,7 +1163,9 @@ class MovieLens(_data):
         #   Empty attributes for now
         self.incompleteMatrix = None
         self.movieTitles = {}
+        self.movieGenres = {}
         self.adjacencyMatrix = None
+        self.genreMatrix = None
         self.indexDataPoints = {}
         
         # Now, we should be ready to load the data and build the (incomplete) 
@@ -1199,15 +1201,18 @@ class MovieLens(_data):
                 if len(self.movieTitles) > 0: # Non empty movieList
                     # Where to save the new movie list
                     movieTitles = {}
+                    movieGenres = {}
                     # Because nodes are now numbered sequentially, we need to
                     # do the same with the movieID to keep them matched (i.e.
                     # node n corresponds to movieList[n] title)
                     newMovieID = 0
                     for movieID in indexColsToKeep:
                         movieTitles[newMovieID] = self.movieTitles[movieID]
+                        movieGenres[newMovieID] = self.movieGenres[movieID]
                         newMovieID = newMovieID + 1
                     # Update movieList
                     self.movieTitles = movieTitles
+                    self.movieGenres = movieGenres
         else:
             # If there was no need to reduce the columns or rows
             indexRowsToKeep = np.arange(self.incompleteMatrix.shape[0])
@@ -1255,8 +1260,16 @@ class MovieLens(_data):
         
         # Determine the number of nodes
         nNodes = workingMatrix.shape[1]
-        
+        self.indexNodesToKeep = indexNodesToKeep 
         assert len(indexNodesToKeep) == nNodes
+
+        # Update Movie Titles and Movie Genres with new IDs
+        newMovieTitles, newMovieGenres = {}, {}
+        for i, idx in enumerate(self.indexNodesToKeep):
+            newMovieTitles[i] = self.movieTitles[idx]
+            newMovieGenres[i] = self.movieGenres[idx]
+        self.movieTitles = newMovieTitles
+        self.movieGenres = newMovieGenres
         
         # And we need to map the original IDs to the new ones (note that
         # each column is a node now -each row is a graph signal- so we
@@ -1349,6 +1362,7 @@ class MovieLens(_data):
         trainSignals = np.empty([0, nNodes])
         trainLabels = np.empty(0)
         trainIDs = np.empty(0).astype(np.int)
+        
         while nTrainSoFar < nTrain and rowCounter < nRows:
             # Get the corresponding selected row
             thisRow = selectedMatrix[randPerm[rowCounter], :]
@@ -1541,6 +1555,7 @@ class MovieLens(_data):
                 # And save the corresponding variable
                 self.incompleteMatrix = datasetDict['incompleteMatrix']
                 self.movieTitles = datasetDict['movieTitles']
+                self.movieGenres = datasetDict['movieGenres']
         else: # If it doesn't exist, load it
             # There could be three options here: that we have the raw data 
             # already there, that we have the zip file and need to decompress it,
@@ -1605,6 +1620,7 @@ class MovieLens(_data):
             self.incompleteMatrix = rawMatrix
             # And we move to load the movie names
             
+            genreDict = {}
             with open(rawMovieListFilename, 'r', encoding = "ISO-8859-1") \
                     as rawMovieList:
                 # Go line by line (each line corresponds to a movie)
@@ -1615,12 +1631,19 @@ class MovieLens(_data):
                     # the column indexing (so it starts at zero)
                     movieTitle = movieLineSplit[1]
                     self.movieTitles[movieID] = movieTitle
+                    
+                    # Store the genres of the title
+                    genres = set([i for i, genre in enumerate(movieLineSplit[5:]) if int(genre) == 1])
+                    self.movieGenres[movieID] = genres
+
+
             # And now that we're done, we save this in a pickle file for
             # posterity
             with open(datasetFilename, 'wb') as datasetFile:
                 pickle.dump(
                         {'incompleteMatrix': self.incompleteMatrix,
-                         'movieTitles': self.movieTitles},
+                         'movieTitles': self.movieTitles,
+                         'movieGenres': self.movieGenres},
                         datasetFile
                         )
     
@@ -1781,7 +1804,6 @@ class MovieLens(_data):
         # Record the actual number of training points that we are left with
         nTrainPoints = len(indexTrainPoints[0])
         assert nTrainPoints == nTrainPointsRest + nTrainPointsActual
-        
         # And this is it! We got all the necessary training samples, including
         # those that we were already using.
         
@@ -1895,18 +1917,15 @@ class MovieLens(_data):
                                'extraComponents': extraComponents})
         # So far, the matrix output is the adjacency matrix of the largest 
         # connected component, and nodesToKeep refer to those nodes.
-        
         # At this point, it can happen that some (or all) of the selected nodes
         # are not in the graph. If none of the selected nodes is there, we
         # should stop (we have no useful problem anymore)
-        
         IDnodesKept = 0 # How many of the selected ID nodes are we keeping
         for i in self.labelID:
             if i in nodesToKeep:
                 IDnodesKept += 1
         
         assert IDnodesKept > 0
-        
         #   Update samples and labelID, if necessary
         if len(nodesToKeep) < N:
             # Update the node IDs
@@ -1991,19 +2010,174 @@ class MovieLens(_data):
                 if len(self.movieTitles) > 0: # Non empty movieList
                     # Where to save the new movie list
                     movieTitles = {}
+                    movieGenres = {}
                     # Because nodes are now numbered sequentially, we need to
                     # do the same with the movieID to keep them matched (i.e.
                     # node n corresponds to movieList[n] title)
                     newMovieID = 0
                     for movieID in nodesToKeep:
                         movieTitles[newMovieID] = self.movieTitles[movieID]
+                        movieGenres[newMovieID] = self.movieGenres[movieID]
                         newMovieID = newMovieID + 1
                     # Update movieList
                     self.movieTitles = movieTitles
+                    self.movieGenres = movieGenres
                 
         #   And finally, sparsify it (nearest neighbors)
         self.adjacencyMatrix = graph.sparsifyGraph(W, 'NN', self.kNN)
-        
+        # Now, we create the genre adjacency matrix
+
+        normalizedMatrix = self.compute_movie_genre_correlations(self.movieGenres, self.samples['train']['signals'])
+        normalizedMatrix = normalizedMatrix.reshape([1, N, N])
+        nodesToKeep = [] # List of nodes to keep after some of them might have
+        #   been removed to satisfy the constraints
+        extraComponents= [] # List where we save the rest of the isolated 
+        # components, if there where
+        WG = graph.createGraph('fuseEdges', N,
+                        {'adjacencyMatrices': normalizedMatrix,
+                        'aggregationType': 'sum',
+                        'normalizationType': 'no',
+                        'isolatedNodes': self.keepIsolatedNodes,
+                        'forceUndirected': self.forceUndirected,
+                        'forceConnected': self.forceConnected,
+                        'nodeList': nodesToKeep,
+                        'extraComponents': extraComponents})
+
+        self.genreMatrix = graph.sparsifyGraph(WG, 'NN', self.kNN)
+
+    # Given a movie is in genre a, what is the probability it is in genre b
+    def determine_genre_prob(self, genreDict, NUM_GENRES):
+        genreProb = np.zeros((NUM_GENRES,NUM_GENRES))
+
+        # form genreMovieDict
+        genreMovieDict = {}
+        for movie in genreDict.keys():
+            for genre in genreDict[movie]:
+                if genre in genreMovieDict:
+                    genreMovieDict[genre].add(movie)
+                else:
+                    genreMovieDict[genre] = set([movie])
+
+        # compute intersection over card of genre i
+        for i in range(NUM_GENRES):
+            for j in range(NUM_GENRES):
+                if i in genreMovieDict and j in genreMovieDict:
+                    card_genre_intersect = len(genreMovieDict[i].intersection(genreMovieDict[j]))
+                    card_genre_i = len(genreMovieDict[i])
+                    genreProb[i,j] = card_genre_intersect / card_genre_i
+                else:
+                    genreProb[i,j] = 0
+        return genreProb, genreMovieDict
+
+    def determine_genre_weight(self, genreDict, genreMovieDict, xTrain, NUM_GENRES):
+        # create mapping from movie -> users who rated it
+        movieUserDict = {}
+        for movie in range(xTrain.shape[1]):
+            nonZeroInd = np.nonzero(xTrain[:,movie])[0]
+            movieUserDict[movie] = set()
+            if len(nonZeroInd) != 0:
+                for element in nonZeroInd.tolist():
+                    movieUserDict[movie].add(element)
+
+        # compute each genre's average rating
+        genreAvgRating = {}
+        for genre in genreMovieDict.keys():
+            totRating = 0
+            numRatings = 0
+            for movie in genreMovieDict[genre]:
+                for user in movieUserDict[movie]:
+                    numRatings += 1
+                    totRating += xTrain[user,movie].item()
+            if numRatings > 0:
+                genreAvgRating[genre] = totRating / numRatings
+            else:
+                genreAvgRating[genre] = 0
+
+        genreWeight = np.zeros((NUM_GENRES,NUM_GENRES))
+        for i in genreMovieDict.keys():
+            for j in genreMovieDict.keys():
+                genreIAvg = genreAvgRating[i]
+                genreJAvg = genreAvgRating[j]
+                movieIntersction = genreMovieDict[i].intersection(genreMovieDict[j])
+                numerator = 0
+                denominatorL = 0
+                denominatorR = 0
+                for movie in movieIntersction:
+                    penalty = len(genreDict[movie])
+                    users = movieUserDict[movie]
+                    cardUsers = len(users)
+                    numerVarIJ = 0
+                    denomVarI = 0
+                    denomVarJ = 0
+                    if cardUsers > 0:
+                        for u in users:
+                            rating = xTrain[user,movie]
+                            numerVarIJ += (rating - genreIAvg) * (rating - genreJAvg)
+                            denomVarI += (rating - genreIAvg)
+                            denomVarJ += (rating - genreJAvg)
+                        numerator += (penalty ** 2) * numerVarIJ / cardUsers
+                        denominatorL += (penalty * denomVarI / cardUsers) ** 2
+                        denominatorR += (penalty * denomVarJ / cardUsers) ** 2
+                
+                if denominatorL == 0 or denominatorR == 0:
+                    genreWeight[i,j] = 0
+                else:
+                    genreWeight[i,j] = numerator / (np.sqrt(denominatorL) * np.sqrt(denominatorR))
+    
+        return genreWeight
+
+    def compute_movie_genre_correlations(self, genreDict, xTrain):
+        NUM_GENRES = 19
+
+        # Everything below 1e-9 is considered zero
+        zeroTolerance = 1e-9
+    
+        # Number of nodes is equal to the number of columns (movies)
+        N = xTrain.shape[1]
+    
+        genreProb, genreMovieDict = self.determine_genre_prob(genreDict, NUM_GENRES)
+        genreWeight = self.determine_genre_weight(genreDict, genreMovieDict, xTrain, NUM_GENRES)
+
+        genreProbStand = genreProb / np.max(genreProb)
+        genreWeightStand = genreWeight / np.max(genreWeight)
+        genreCorr = genreProbStand + genreWeightStand
+        movieGenreCorrs = np.zeros((len(genreDict),len(genreDict)))
+    
+        for movieI in genreDict.keys():
+            movieIGenres = genreDict[movieI]
+            for movieJ in genreDict.keys():
+                movieJGenres = genreDict[movieJ]
+                jointGenres = movieIGenres.intersection(movieJGenres)
+                sumGenreCorrs = 0
+                for movieIGen in movieIGenres:
+                    for movieJGen in movieJGenres:
+                        if movieIGen not in jointGenres or movieJGen not in jointGenres:
+                            sumGenreCorrs += genreCorr[movieIGen,movieJGen]
+                movieGenreCorrs[movieI, movieJ] = (len(jointGenres) ** 2 + sumGenreCorrs)/ (len(movieIGenres) * len(movieJGenres))
+    
+        # Normalizing by diagonal weights
+        sqrtDiagonal = np.sqrt(np.diag(movieGenreCorrs))
+        nonzeroSqrtDiagonalIndex = (sqrtDiagonal > zeroTolerance).astype(sqrtDiagonal.dtype)
+
+        sqrtDiagonal[sqrtDiagonal < zeroTolerance] = 1.
+        invSqrtDiagonal = 1 / sqrtDiagonal
+        invSqrtDiagonal = invSqrtDiagonal * nonzeroSqrtDiagonalIndex
+        normalizationMatrix = np.diag(invSqrtDiagonal)
+    
+        # Zero-ing the diagonal
+        normalizedMatrix = normalizationMatrix.dot(
+                                movieGenreCorrs.dot(normalizationMatrix)) \
+                                - np.eye(movieGenreCorrs.shape[0])
+
+        # Keeping only edges with weights above the zero tolerance
+        normalizedMatrix[np.abs(normalizedMatrix) < zeroTolerance] = 0.
+        W = normalizedMatrix
+    
+        # Normalizing by eigenvalue with largest magnitude
+        E, V = np.linalg.eig(W)
+        W = W/np.max(np.abs(E))
+        return W
+
     def interpolateRatings(self):
         # For the nonzero nodes, we will average the value of the closest
         # nonzero elements.
@@ -2102,6 +2276,10 @@ class MovieLens(_data):
     def getGraph(self):
         
         return self.adjacencyMatrix
+
+    def getGenreGraph(self):
+        
+        return self.genreMatrix
     
     def getMovieTitles(self):
         
@@ -2178,6 +2356,7 @@ class MovieLens(_data):
         # This changes the type for the incomplete and adjacency matrix.
         self.incompleteMatrix = changeDataType(self.incompleteMatrix, dataType)
         self.adjacencyMatrix = changeDataType(self.adjacencyMatrix, dataType)
+        self.genreMatrix = changeDataType(self.genreMatrix, dataType)
         
         # And now, initialize to change the samples as well (and also save the 
         # data type)
@@ -2191,6 +2370,7 @@ class MovieLens(_data):
             # method to().
             self.incompleteMatrix.to(device)
             self.adjacencyMatrix.to(device)
+            self.genreMatrix.to(device)
             # And call the inherit method to initialize samples (and save to
             # device)
             super().to(device)
@@ -4127,6 +4307,8 @@ class TwentyNews(_dataForClassification):
         self.graphData = None # Store the data (word2vec embeddings) required
             # to build the graph
         self.adjacencyMatrix = None # Store the graph built from the loaded
+            # data
+        self.genreMatrix = None # Store the graph built from the loaded
             # data
     
         # Get the training dataset. Saves vocab, dataset, and samples

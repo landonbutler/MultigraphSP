@@ -136,9 +136,9 @@ saveSeed(randomStates, saveDir)
 useGPU = True # If true, and GPU is available, use it.
 useLaplacian = True # Decide to use the Laplacian as the GSO
 
-epsMin = 1e-1 # Minimum value of perturbation
-epsMax = 1e2 # Maximum value of perturbation
-nSimPoints = 5 # Number of simulation points
+epsMin = 1e-3 # Minimum value of perturbation
+epsMax = 1e0 # Maximum value of perturbation
+nSimPoints = 10 # Number of simulation points
 eps = np.logspace(np.log10(epsMin), np.log10(epsMax), num=nSimPoints)
 
 ratioTrain = 0.9 # Ratio of training samples
@@ -242,8 +242,9 @@ writeVarValues(varsFile,
     
 # Select desired architectures
 doLinearFlt = True
-doNoPenalty = True
-doILpenalty = True
+doNoPenaltyGNN = True
+doNoPenaltyMGNN = True
+doILpenaltyMGNN = True
 
 # In this section, we determine the (hyper)parameters of models that we are
 # going to train. This only sets the parameters. The architectures need to be
@@ -257,7 +258,7 @@ doILpenalty = True
 
 # The name of the keys in the model dictionary have to be the same
 # as the names of the variables in the architecture call, because they will
-# be called by unpacking the dictionary.
+# be called by unpacking the dictionary
 
 modelList = []
 modelLegend = {}
@@ -320,12 +321,12 @@ if doLinearFlt:
 #\\\ NO PENALTY \\\
 #\\\\\\\\\\\\\\\\\\
 
-if doNoPenalty:
+if doNoPenaltyGNN:
 
     #\\\ Basic parameters for all the Local GNN architectures
     
     modelNoPnlt = {} # Model parameters for the Local GNN (LclGNN)
-    modelNoPnlt['name'] = 'NoPnlt'
+    modelNoPnlt['name'] = 'NoPnltGNN'
     modelNoPnlt['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
                                      else 'cpu'
     
@@ -368,30 +369,85 @@ if doNoPenalty:
     #\\\ Save Values:
     writeVarValues(varsFile, modelNoPnlt)
     modelList += [modelNoPnlt['name']]
-    modelLegend[modelNoPnlt['name']] = 'GNN'
+    modelLegend[modelNoPnlt['name']] = 'Multi-Channel GNN'
+
+#\\\\\\\\\\\\\\\\\\
+#\\\ NO PENALTY \\\
+#\\\\\\\\\\\\\\\\\\
+
+if doNoPenaltyMGNN:
+
+    #\\\ Basic parameters for all the Local GNN architectures
+    
+    modelNoPnlt = {} # Model parameters for the Local GNN (LclGNN)
+    modelNoPnlt['name'] = 'NoPnltGNN'
+    modelNoPnlt['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
+                                     else 'cpu'
+    
+    #\\\ ARCHITECTURE
+    
+    # Chosen architecture
+    modelNoPnlt['archit'] = archit.MultiGNN
+    # Graph convolutional parameters
+    modelNoPnlt['dimNodeSignals'] = [1, 64] # Features per layer
+    modelNoPnlt['nFilterTaps'] = [3] # Number of filter taps per layer
+    modelNoPnlt['bias'] = True # Decide whether to include a bias term
+    # Nonlinearity
+    modelNoPnlt['nonlinearity'] = nn.ReLU # Selected nonlinearity
+    # Pooling
+    modelNoPnlt['poolingFunction'] = gml.NoPool # Summarizing function
+    modelNoPnlt['nSelectedNodes'] = None # To be determined later on
+    modelNoPnlt['poolingSize'] = [1] # poolingSize-hop neighborhood that
+        # is affected by the summary
+    # Readout layer: local linear combination of features
+    modelNoPnlt['dimReadout'] = [1] # Dimension of the fully connected layers
+        # after the GCN layers (map); this fully connected layer is applied only
+        # at each node, without any further exchanges nor considering all nodes
+        # at once, making the architecture entirely local.
+    # Graph structure
+    modelNoPnlt['GSO'] = None # To be determined later on, based on data
+    modelNoPnlt['order'] = None # Not used because there is no pooling
+    
+    #\\\ TRAINER
+
+    modelNoPnlt['trainer'] = training.TrainerSingleNode
+    
+    #\\\ EVALUATOR
+    
+    modelNoPnlt['evaluator'] = evaluation.evaluateSingleNode
+    
+    #\\\ LOSS FUNCTION
+    
+    modelNoPnlt['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
+
+    #\\\ Save Values:
+    writeVarValues(varsFile, modelNoPnlt)
+    modelList += [modelNoPnlt['name']]
+    modelLegend[modelNoPnlt['name']] = 'MultiGNN'
+
 
 #\\\\\\\\\\\\\\\\\\\\\\\
 #\\\ WITH IL PENALTY \\\
 #\\\\\\\\\\\\\\\\\\\\\\\
 
-if doILpenalty:    
+if doILpenaltyMGNN:    
     
     #\\\/// Model 1: 1 penalty \\\///
 
     #\\\ Basic parameters for all the Local GNN architectures
     
     modelILpnl1 = {} # Model parameters for the Local GNN (LclGNN)
-    modelILpnl1['name'] = 'ILpnl1'
+    modelILpnl1['name'] = 'MGNN ILpnl 0.1'
     modelILpnl1['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
                                      else 'cpu'
     
     #\\\ ARCHITECTURE
     
     # Chosen architecture
-    modelILpnl1['archit'] = archit.LocalGNN
+    modelILpnl1['archit'] = archit.MultiGNN
     # Graph convolutional parameters
     modelILpnl1['dimNodeSignals'] = [1, 64] # Features per layer
-    modelILpnl1['nFilterTaps'] = [5] # Number of filter taps per layer
+    modelILpnl1['nFilterTaps'] = [3] # Number of filter taps per layer
     modelILpnl1['bias'] = True # Decide whether to include a bias term
     # Nonlinearity
     modelILpnl1['nonlinearity'] = nn.ReLU # Selected nonlinearity
@@ -419,36 +475,36 @@ if doILpenalty:
     
     #\\\ LOSS FUNCTION
     
-    modelILpnl1['penalty'] = ('ILconstant', 1.) # Penalty function name, and
+    modelILpnl1['penalty'] = ('ILconstant', 0.1) # Penalty function name, and
         # penalty multiplier
     modelILpnl1['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
 
     #\\\ Save Values:
     writeVarValues(varsFile, modelILpnl1)
     modelList += [modelILpnl1['name']]
-    modelLegend[modelILpnl1['name']] = 'GNN.1 (IL)'
+    modelLegend[modelILpnl1['name']] = 'MGNN 0.1 (IL)'
     
     #\\\/// Model 2: 0.5 penalty \\\///
     
     modelILpnl2 = deepcopy(modelILpnl1)
-    modelILpnl2['name'] = 'ILpnl2'
-    modelILpnl2['penalty'] = ('ILconstant', 100.) # Penalty function name, and
+    modelILpnl2['name'] = 'MGNN ILpnl 0.5'
+    modelILpnl2['penalty'] = ('ILconstant', 0.5) # Penalty function name, and
         # penalty multiplier
     modelILpnl2['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
     writeVarValues(varsFile, modelILpnl2)
     modelList += [modelILpnl2['name']]
-    modelLegend[modelILpnl2['name']] = 'GNN.2 (IL)'
+    modelLegend[modelILpnl2['name']] = 'MGNN 0.5 (IL)'
     
-    #\\\/// Model 2: 2 penalty \\\///
+    #\\\/// Model 3: 2 penalty \\\///
     
     modelILpnl3 = deepcopy(modelILpnl1)
-    modelILpnl3['name'] = 'ILpnl3'
-    modelILpnl3['penalty'] = ('ILconstant', 1000.) # Penalty function name, and
+    modelILpnl3['name'] = 'MGNN ILpnl 1.0'
+    modelILpnl3['penalty'] = ('ILconstant', 1.) # Penalty function name, and
         # penalty multiplier
     modelILpnl3['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
     writeVarValues(varsFile, modelILpnl3)
     modelList += [modelILpnl3['name']]
-    modelLegend[modelILpnl3['name']] = 'GNN.3 (IL)'
+    modelLegend[modelILpnl3['name']] = 'MGNN 1.0 (IL)'
 
 ###########
 # LOGGING #
@@ -678,13 +734,18 @@ for n in range(nSimPoints):
     
         # Create graph
         adjacencyMatrix = data.getGraph()
-        G = graphTools.Graph('adjacency', adjacencyMatrix.shape[0],
-                             {'adjacencyMatrix': adjacencyMatrix})
-        G.computeGFT() # Compute the GFT of the stored GSO
     
-        # And re-update the number of nodes for changes in the graph (due to
-        # enforced connectedness, for instance)
-        nNodes = G.N
+    
+        G1 = graphTools.Graph('adjacency', adjacencyMatrix.shape[0],
+                             {'adjacencyMatrix': adjacencyMatrix})
+        G1.computeGFT() # Compute the GFT of the stored GSO
+
+        genreMatrix = data.getGenreGraph()
+        G2 = graphTools.Graph('adjacency', genreMatrix.shape[0],
+                             {'adjacencyMatrix': adjacencyMatrix})
+        G2.computeGFT() # Compute the GFT of the stored GSO
+
+
     
         # Once data is completely formatted and in appropriate fashion, change its
         # type to torch
@@ -755,11 +816,19 @@ for n in range(nSimPoints):
     
             #\\\ Ordering
             if useLaplacian:
-                SL = graphTools.normalizeLaplacian(G.L)
-                EL, _ = graphTools.computeGFT(SL, order = 'increasing')
-                S = 2 * SL/np.max(np.real(EL)) - np.eye(G.N)
+                SL1 = graphTools.normalizeLaplacian(G1.L)
+                EL1, _ = graphTools.computeGFT(SL1, order = 'increasing')
+                S1 = 2 * SL1/np.max(np.real(EL1)) - np.eye(G1.N)
+
+                SL2 = graphTools.normalizeLaplacian(G2.L)
+                EL2, _ = graphTools.computeGFT(SL2, order = 'increasing')
+                S2 = 2 * SL2/np.max(np.real(EL2)) - np.eye(G2.N)
+
+                S = np.stack((S1, S2), axis = 0)
             else:
-                S = G.S.copy()/np.max(np.real(G.E))
+                S1 = G1.S.copy()/np.max(np.real(G1.E))
+                S2 = G2.S.copy()/np.max(np.real(G2.E))
+                S = np.stack((S1, S2), axis = 0)
             # Do not forget to add the GSO to the input parameters of the archit
             modelDict['GSO'] = S
             # Add the number of nodes for the no-pooling part
