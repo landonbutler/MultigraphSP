@@ -1464,7 +1464,7 @@ class MutliGNN(nn.Module):
     # TO DO: Get this to work as a multigraph
     def __init__(self,
                  # Graph filtering
-                 dimNodeSignals, nFilterTaps, bias,
+                 dimNodeSignals, maxOrders, bias,
                  # Nonlinearity
                  nonlinearity,
                  # Pooling
@@ -1472,58 +1472,27 @@ class MutliGNN(nn.Module):
                  # MLP in the end
                  dimReadout,
                  # Structure
-                 GSO, order = None):
+                 GSOs):
         # Initialize parent:
         super().__init__()
-        # dimNodeSignals should be a list and of size 1 more than nFilter taps.
-        assert len(dimNodeSignals) == len(nFilterTaps) + 1
-        # nSelectedNodes should be a list of size nFilterTaps, since the number
-        # of nodes in the first layer is always the size of the graph
-        assert len(nSelectedNodes) == len(nFilterTaps)
-        # poolingSize also has to be a list of the same size
-        assert len(poolingSize) == len(nFilterTaps)
-        # Check whether the GSO has features or not. After that, always handle
-        # it as a matrix of dimension E x N x N.
-        assert len(GSO.shape) == 2 or len(GSO.shape) == 3
-        if len(GSO.shape) == 2:
-            assert GSO.shape[0] == GSO.shape[1]
-            GSO = GSO.reshape([1, GSO.shape[0], GSO.shape[1]]) # 1 x N x N
-        else:
-            assert GSO.shape[1] == GSO.shape[2] # E x N x N
+
+        assert GSOs.shape[0] == 3
+        assert GSOs.shape[1] == GSOs.shape[2] # E x N x N
+
         # Store the values (using the notation in the paper):
-        self.L = len(nFilterTaps) # Number of graph filtering layers
+        self.L = len(maxOrders) # Number of graph filtering layers
         self.F = dimNodeSignals # Features
-        self.K = nFilterTaps # Filter taps
-        self.E = GSO.shape[0] # Number of edge features
-        if order is not None:
-            # If there's going to be reordering, then the value of the
-            # permutation function will be given by the criteria in 
-            # self.reorder. For instance, if self.reorder = 'Degree', then
-            # we end up calling the function Utils.graphTools.permDegree.
-            # We need to be sure that the function 'perm' + self.reorder
-            # is available in the Utils.graphTools module.
-            self.permFunction = eval('Utils.graphTools.perm' + order)
-        else:
-            self.permFunction = Utils.graphTools.permIdentity
-            # This is overriden if coarsening is selected, since the ordering
-            # function is native to that pooling method.
-        self.S, self.order = self.permFunction(GSO)
-        if 'torch' not in repr(self.S.dtype):
-            self.S = torch.tensor(self.S)
-        self.eigenvalues = None # No set of eigenvalues saved yet, we will only
-            # compute the eigenvalues if we need them
-        self.eigenvaluesPowers = None # Variable to save the power of the
-            # eigenvalues
-        self.alpha = poolingSize
-        self.N = [GSO.shape[1]] + nSelectedNodes # Number of nodes
-        # See that we adding N_{0} = N as the number of nodes input the first
-        # layer: this above is the list containing how many nodes are between
-        # each layer.
+        self.K = maxOrders # max orders
+        self.numGSOs = GSOs.shape[0] # Number of edge features
+        
+        self.term_idxs = [self.generate_term_idxs(self.numGSOs,d) for d in maxOrders]
+        self.GSOs = [self.find_term_matrices(GSOs, self.term_idxs[layer]) for layer in range(len(self.term_idxs))]
+
         self.bias = bias # Boolean
         # Store the rest of the variables
         self.sigma = nonlinearity
-        self.rho = poolingFunction
         self.dimReadout = dimReadout
+        self.device = GSOs.device
         # And now, we're finally ready to create the architecture:
         #\\\ Graph filtering layers \\\
         # OBS.: We could join this for with the one before, but we keep separate
@@ -1531,18 +1500,13 @@ class MutliGNN(nn.Module):
         gfl = [] # Graph Filtering Layers
         for l in range(self.L):
             #\\ Graph filtering stage:
-            gfl.append(gml.GraphFilter(self.F[l], self.F[l+1], self.K[l],
-                                              self.E, self.bias))
+            gfl.append(gml.MultiGraphFilter(self.GSOs, self.F[l], self.F[l+1],
+                                              self.E, self.device, self.bias))
             # There is a 3*l below here, because we have three elements per
             # layer: graph filter, nonlinearity and pooling, so after each layer
             # we're actually adding elements to the (sequential) list.
-            gfl[3*l].addGSO(self.S)
             #\\ Nonlinearity
             gfl.append(self.sigma())
-            #\\ Pooling
-            gfl.append(self.rho(self.N[l], self.N[l+1], self.alpha[l]))
-            # Same as before, this is 3*l+2
-            gfl[3*l+2].addGSO(self.S)
         # And now feed them into the sequential
         self.GFL = nn.Sequential(*gfl) # Graph Filtering Layers
         #\\\ MLP (Fully Connected Layers) \\\
@@ -1566,88 +1530,51 @@ class MutliGNN(nn.Module):
         # And we're done
         self.Readout = nn.Sequential(*fc)
         # so we finally have the architecture.
-        
-    def changeGSO(self, GSO, nSelectedNodes = [], poolingSize = []):
+
+    def generate_term_idxs(self,numGSOs,depth):
+        frontier_terms = [tuple([i]) for i in range(numGSOs)]
+        computed_terms = set()
+        while len(frontier_terms) > 0:
+          lead_term = frontier_terms.pop()
+          computed_terms.add(lead_term)
+          # Multiply by the left of with each GSO
+          for gso in range(numGSOs):
+            if len(lead_term) < depth:
+              frontier_terms.append(tuple([gso] + list(lead_term)))
+        return computed_terms
+
+    def find_term_matrices(self, GSOs, term_idxs):
+        n = GSOs[0].shape[1]
+        GSO_interactions = []
+        for i,term in enumerate(term_idxs):
+          mat_term = GSOs[term[0],:,:]
+          if len(term) > 1:
+            for j in range(1,len(term)):
+              mat_term = mat_term @ GSOs[term[j],:,:]
+  
+          GSO_interactions.append(mat_term.to(self.device))
+        return GSO_interactions
+
+    def changeGSO(self, GSOs):
         
         # We use this to change the GSO, using the same graph filters.
         
         # Check that the new GSO has the correct
-        assert len(GSO.shape) == 2 or len(GSO.shape) == 3
-        if len(GSO.shape) == 2:
-            assert GSO.shape[0] == GSO.shape[1]
-            GSO = GSO.reshape([1, GSO.shape[0], GSO.shape[1]]) # 1 x N x N
-        else:
-            assert GSO.shape[1] == GSO.shape[2] # E x N x N
+        assert len(GSO.shape) == 3
+
+        assert GSO.shape[1] == GSO.shape[2] # E x N x N
             
         # Get dataType and device of the current GSO, so when we replace it, it
         # is still located in the same type and the same device.
-        dataType = self.S.dtype
-        if 'device' in dir(self.S):
-            device = self.S.device
+        dataType = self.GSOs[0].dtype
+        if 'device' in dir(self.GSOs[0]):
+            device = self.GSOs[0].device
         else:
             device = None
         
-        # Reorder the new GSO
-        self.S, self.order = self.permFunction(GSO)
-        # Change data type and device as required
-        self.S = changeDataType(self.S, dataType)
-        if device is not None:
-            self.S = self.S.to(device)
-        # And reset the eigenvalues
-        self.eigenvalues = None
-        self.eigenvaluesPowers = None
-            
-        # Before making decisions, check if there is a new poolingSize list
-        if len(poolingSize) > 0:
-            # Check it has the right length
-            assert len(poolingSize) == self.L
-            # And update it
-            self.alpha = poolingSize
-        
-        # Now, check if we have a new list of nodes
-        if len(nSelectedNodes) > 0:
-            # If we do, then we need to change the pooling functions to select
-            # less nodes. This would allow to use graphs of different size.
-            # Note that the pooling function, there is nothing learnable, so
-            # they can easily be re-made, re-initialized.
-            # The first thing we need to check, is that the length of the
-            # number of nodes is equal to the number of layers (this list 
-            # indicates the number of nodes selected at the output of each
-            # layer)
-            assert len(nSelectedNodes) == self.L
-            # Then, update the N that we have stored
-            self.N = [GSO.shape[1]] + nSelectedNodes
-            # And get the new pooling functions
-            for l in range(self.L):
-                # For each layer, add the pooling function
-                self.GFL[3*l+2] = self.rho(self.N[l], self.N[l+1],
-                                           self.alpha[l])
-                self.GFL[3*l+2].addGSO(self.S)
-        else:
-            # Just update the GSO
-            for l in range(self.L):
-                self.GFL[3*l+2].addGSO(self.S)
-        
-        # And update in the LSIGF that is still missing
-        for l in range(self.L):
-            self.GFL[3*l].addGSO(self.S) # Graph convolutional layer
-            
-    def _computeEigenvalues(self):
-        
-        # It will have shape E x N
-        #   Obtain the eigenvalues
-        eigenvalues, _ = Utils.graphTools.computeGFT(
-                                                  self.S.data.cpu().numpy(),
-                                                  order = 'no',
-                                                  doMatrix = False)
-        #   And put them back to being torch (E x N)
-        self.eigenvalues = torch.tensor(eigenvalues, device = self.S.device)
-        #   And now compute the eigenvalue powers
-        eigenvaluesPowers = Utils.graphTools.vectorPowers(eigenvalues,
-                                                         max(self.K))
-        #   Finally, move it back to tensor (E x K x N)
-        self.eigenvaluesPowers = torch.tensor(eigenvaluesPowers,
-                                             device = self.S.device)
+        self.term_idxs = [self.generate_term_idxs(self.numGSOs,d) for d in self.K]
+        self.GSOs = [self.find_term_matrices(GSOs, self.term_idxs[layer]) for layer in range(len(self.term_idxs))]
+
         
     def getFilters(self, nSamples = 200):
         # Get the frequency response of the filters
