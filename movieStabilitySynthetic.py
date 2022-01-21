@@ -159,7 +159,7 @@ nDataSplits = 5 # Number of data realizations
 # Obs.: The built graph depends on the split between training, validation and
 # testing. Therefore, we will run several of these splits and average across
 # them, to obtain some result that is more robust to this split.
-nPerturb = 3 # The perturbations are random, so we need to run for a couple of
+nPerturb = 100 # The perturbations are random, so we need to run for a couple of
     # them
     
 # Given that we build the graph from a training split selected at random, it
@@ -986,7 +986,7 @@ for n in range(nSimPoints):
             # PLOT FILTERS #
             ################
             
-    
+            '''
             modelsGNN[thisModel].load(label='Best') # Load best model, which is
                 # usually the one that works better
             thisFilters, eigenvalues = modelsGNN[thisModel].archit.getFilters()
@@ -1011,7 +1011,7 @@ for n in range(nSimPoints):
                         saveDirFilters,'filters%sLayer%02d.pdf' % (thisModel, l+1)),
                                       bbox_inches='tight')
                     plt.close(fig = filterFig)
-                    
+            '''    
                     
             ################
             # PERTURBATION #
@@ -1024,7 +1024,7 @@ for n in range(nSimPoints):
             
                 # Get the used GSO
                 #thisS = modelsGNN[thisModel].archit.S.data.cpu().numpy() # ExNxN
-                thisS = G.S.copy().reshape((1, G.N, G.N))
+                thisS = S.copy()
                 nEdgeFeatures = thisS.shape[0] 
                 nNodes = thisS.shape[1]
                 # Compute the perturbation matrix
@@ -1090,7 +1090,7 @@ for n in range(nSimPoints):
                     deltaN[modelName][n][split][p] = thisDelta * np.sqrt(nNodes)
                 #   Compute the actual values of epsilon for the normalized
                 #   versions
-                thisSnorm = modelsGNN[thisModel].archit.S.data.cpu().numpy()
+                thisSnorm = torch.tensor(modelsGNN[thisModel].archit.S).data.cpu().numpy()
                 for e in range(nEdgeFeatures):
                     eRel[modelName][n][split][p] = \
                             np.linalg.norm(thisSnorm[e] - ShatRel[e], ord = 2)/\

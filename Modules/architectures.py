@@ -1482,7 +1482,7 @@ class MultiGNN(nn.Module):
 
         assert len(GSOs.shape) == 3
         assert GSOs.shape[1] == GSOs.shape[2] # E x N x N
-        self.origGSOs = GSOs
+        self.S = GSOs
         if order is not None:
             # If there's going to be reordering, then the value of the
             # permutation function will be given by the criteria in 
@@ -1605,18 +1605,18 @@ class MultiGNN(nn.Module):
             
         # Get dataType and device of the current GSO, so when we replace it, it
         # is still located in the same type and the same device.
-        dataType = self.GSOs[0].dtype
+        dataType = self.GSOs[0][0].dtype
         if 'device' in dir(self.GSOs[0]):
             device = self.GSOs[0].device
         else:
             device = None
-        self.origGSOs = GSOs
+        self.S = GSOs
         self.term_idxs = [self.generate_term_idxs(self.numGSOs,d) for d in self.K]
         self.GSOs = [self.find_term_matrices(GSOs, self.term_idxs[layer]) for layer in range(len(self.term_idxs))]
 
     def ILconstantComp(self, EOpers, layer, oper):
         ILconstantEstimations = []
-        operator = self.origGSOs[oper,:,:]
+        operator = self.S[oper,:,:]
         filter = self.GFL[2 * layer].weight[:,0,:,:].cpu().detach().numpy()
         # Computes ILConstant for each layer, for each GSO
 
@@ -1629,14 +1629,14 @@ class MultiGNN(nn.Module):
                         if jdx == 0:
                             mat_term = EO
                             for kdx in range(1,len(term)):
-                                mat_term = mat_term @ self.origGSOs[term[kdx],:,:]
+                                mat_term = mat_term @ self.S[term[kdx],:,:]
                         else:
-                            mat_term = self.origGSOs[term[0],:,:]
+                            mat_term = self.S[term[0],:,:]
                             for kdx in range(1,len(term)):
                                 if kdx == jdx:
                                     mat_term = mat_term @ EO
                                 else:
-                                    mat_term = mat_term @ self.origGSOs[term[kdx],:,:]
+                                    mat_term = mat_term @ self.S[term[kdx],:,:]
                         addTerm += mat_term
                 # Outer multiply filter by addTerm to get ILconstantEst for term
                 ILconstantEst += np.einsum('ac,bd->abcd',filter[:,idx+1,:],addTerm)
@@ -1645,17 +1645,17 @@ class MultiGNN(nn.Module):
 
     def ILconstant(self):
         ITERS = 2
-        numOpers = self.origGSOs.shape[0]
+        numOpers = self.S.shape[0]
         Es = []
         for i in range(ITERS):
-            E = np.random.uniform(size=self.origGSOs[0,:,:].shape)
+            E = np.random.uniform(size=self.S[0,:,:].shape)
             Es.append(E / LA.norm(E))
 
         # Compute ILConstant for each layer, for each GSO
-        # Should be size self.n_layers x len(self.origGSOs)
+        # Should be size self.n_layers x len(self.S)
         ILconstants = np.zeros((self.L, numOpers))
         for operator in range(numOpers):
-            EOpers = [E @ self.origGSOs[operator,:,:] for E in Es]
+            EOpers = [E @ self.S[operator,:,:] for E in Es]
             for layer in range(self.L):
                 ILconstants[layer, operator] = self.ILconstantComp(EOpers, layer, operator)
         #print(f'CALCULATED: {np.max(np.min(ILconstants, axis=1))}')
@@ -1663,7 +1663,23 @@ class MultiGNN(nn.Module):
         return np.max(np.min(ILconstants, axis=1))
     
     def LipschitzConstant(self):
-        return 0
+        ITERS = 2
+        numOpers = self.S.shape[0]
+        Es = []
+        for i in range(ITERS):
+            E = np.random.uniform(size=self.S[0,:,:].shape)
+            Es.append(E / LA.norm(E))
+
+        # Compute ILConstant for each layer, for each GSO
+        # Should be size self.n_layers x len(self.S)
+        Lconstants = np.zeros((self.L, numOpers))
+        for operator in range(numOpers):
+            EOpers = Es
+            for layer in range(self.L):
+                Lconstants[layer, operator] = self.ILconstantComp(EOpers, layer, operator)
+        #print(f'CALCULATED: {np.max(np.min(ILconstants, axis=1))}')
+        # Find the minimum for each operator, and the maximum for each
+        return np.array(np.max(np.min(Lconstants, axis=1)))
 
     def splitForward(self, x):
 
