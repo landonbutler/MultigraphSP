@@ -148,7 +148,7 @@ ratioValid = 0.1 # Ratio of validation samples (out of the total training
 #   nValidation = round(ratioValid * ratioTrain * nTotal)
 #   nTrain = round((1 - ratioValid) * ratioTrain * nTotal)
 #   nTest = nTotal - nTrain - nValidation
-maxNodes = None # Maximum number of nodes (select the ones with the largest
+maxNodes = 200 # Maximum number of nodes (select the ones with the largest
 #   number of ratings)
 minRatings = 0 # Discard samples (rows and columns) with less than minRatings 
     # ratings
@@ -159,7 +159,7 @@ nDataSplits = 5 # Number of data realizations
 # Obs.: The built graph depends on the split between training, validation and
 # testing. Therefore, we will run several of these splits and average across
 # them, to obtain some result that is more robust to this split.
-nPerturb = 100 # The perturbations are random, so we need to run for a couple of
+nPerturb = 3 # The perturbations are random, so we need to run for a couple of
     # them
     
 # Given that we build the graph from a training split selected at random, it
@@ -211,7 +211,7 @@ lossFunction = nn.SmoothL1Loss
 
 #\\\ Overall training options
 nEpochs = 40 # Number of epochs
-batchSize = 5 # Batch size
+batchSize = 50 # Batch size
 doLearningRateDecay = False # Learning rate decay
 learningRateDecayRate = 0.9 # Rate
 learningRateDecayPeriod = 1 # How many epochs after which update the lr
@@ -325,51 +325,51 @@ if doNoPenaltyGNN:
 
     #\\\ Basic parameters for all the Local GNN architectures
     
-    modelNoPnlt = {} # Model parameters for the Local GNN (LclGNN)
-    modelNoPnlt['name'] = 'NoPnltGNN'
-    modelNoPnlt['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
+    modelNoPnltGNN = {} # Model parameters for the Local GNN (LclGNN)
+    modelNoPnltGNN['name'] = 'NoPnltGNN'
+    modelNoPnltGNN['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
                                      else 'cpu'
     
     #\\\ ARCHITECTURE
     
     # Chosen architecture
-    modelNoPnlt['archit'] = archit.LocalGNN
+    modelNoPnltGNN['archit'] = archit.LocalGNN
     # Graph convolutional parameters
-    modelNoPnlt['dimNodeSignals'] = [1, 64] # Features per layer
-    modelNoPnlt['nFilterTaps'] = [5] # Number of filter taps per layer
-    modelNoPnlt['bias'] = True # Decide whether to include a bias term
+    modelNoPnltGNN['dimNodeSignals'] = [1, 64] # Features per layer
+    modelNoPnltGNN['nFilterTaps'] = [5] # Number of filter taps per layer
+    modelNoPnltGNN['bias'] = True # Decide whether to include a bias term
     # Nonlinearity
-    modelNoPnlt['nonlinearity'] = nn.ReLU # Selected nonlinearity
+    modelNoPnltGNN['nonlinearity'] = nn.ReLU # Selected nonlinearity
     # Pooling
-    modelNoPnlt['poolingFunction'] = gml.NoPool # Summarizing function
-    modelNoPnlt['nSelectedNodes'] = None # To be determined later on
-    modelNoPnlt['poolingSize'] = [1] # poolingSize-hop neighborhood that
+    modelNoPnltGNN['poolingFunction'] = gml.NoPool # Summarizing function
+    modelNoPnltGNN['nSelectedNodes'] = None # To be determined later on
+    modelNoPnltGNN['poolingSize'] = [1] # poolingSize-hop neighborhood that
         # is affected by the summary
     # Readout layer: local linear combination of features
-    modelNoPnlt['dimReadout'] = [1] # Dimension of the fully connected layers
+    modelNoPnltGNN['dimReadout'] = [1] # Dimension of the fully connected layers
         # after the GCN layers (map); this fully connected layer is applied only
         # at each node, without any further exchanges nor considering all nodes
         # at once, making the architecture entirely local.
     # Graph structure
-    modelNoPnlt['GSO'] = None # To be determined later on, based on data
-    modelNoPnlt['order'] = None # Not used because there is no pooling
+    modelNoPnltGNN['GSO'] = None # To be determined later on, based on data
+    modelNoPnltGNN['order'] = None # Not used because there is no pooling
     
     #\\\ TRAINER
 
-    modelNoPnlt['trainer'] = training.TrainerSingleNode
+    modelNoPnltGNN['trainer'] = training.TrainerSingleNode
     
     #\\\ EVALUATOR
     
-    modelNoPnlt['evaluator'] = evaluation.evaluateSingleNode
+    modelNoPnltGNN['evaluator'] = evaluation.evaluateSingleNode
     
     #\\\ LOSS FUNCTION
     
-    modelNoPnlt['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
+    modelNoPnltGNN['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
 
     #\\\ Save Values:
-    writeVarValues(varsFile, modelNoPnlt)
-    modelList += [modelNoPnlt['name']]
-    modelLegend[modelNoPnlt['name']] = 'Multi-Channel GNN'
+    writeVarValues(varsFile, modelNoPnltGNN)
+    modelList += [modelNoPnltGNN['name']]
+    modelLegend[modelNoPnltGNN['name']] = 'Multi-Channel GNN'
 
 #\\\\\\\\\\\\\\\\\\
 #\\\ NO PENALTY \\\
@@ -379,51 +379,51 @@ if doNoPenaltyMGNN:
 
     #\\\ Basic parameters for all the Local GNN architectures
     
-    modelNoPnlt = {} # Model parameters for the Local GNN (LclGNN)
-    modelNoPnlt['name'] = 'NoPnltGNN'
-    modelNoPnlt['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
+    modelNoPnltMGNN = {} # Model parameters for the Local GNN (LclGNN)
+    modelNoPnltMGNN['name'] = 'NoPnltMGNN'
+    modelNoPnltMGNN['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
                                      else 'cpu'
     
     #\\\ ARCHITECTURE
     
     # Chosen architecture
-    modelNoPnlt['archit'] = archit.MultiGNN
+    modelNoPnltMGNN['archit'] = archit.MultiGNN
     # Graph convolutional parameters
-    modelNoPnlt['dimNodeSignals'] = [1, 64] # Features per layer
-    modelNoPnlt['nFilterTaps'] = [3] # Number of filter taps per layer
-    modelNoPnlt['bias'] = True # Decide whether to include a bias term
+    modelNoPnltMGNN['dimNodeSignals'] = [1, 64] # Features per layer
+    modelNoPnltMGNN['nFilterTaps'] = [3] # Number of filter taps per layer
+    modelNoPnltMGNN['bias'] = True # Decide whether to include a bias term
     # Nonlinearity
-    modelNoPnlt['nonlinearity'] = nn.ReLU # Selected nonlinearity
+    modelNoPnltMGNN['nonlinearity'] = nn.ReLU # Selected nonlinearity
     # Pooling
-    modelNoPnlt['poolingFunction'] = gml.NoPool # Summarizing function
-    modelNoPnlt['nSelectedNodes'] = None # To be determined later on
-    modelNoPnlt['poolingSize'] = [1] # poolingSize-hop neighborhood that
+    modelNoPnltMGNN['poolingFunction'] = gml.NoPool # Summarizing function
+    modelNoPnltMGNN['nSelectedNodes'] = None # To be determined later on
+    modelNoPnltMGNN['poolingSize'] = [1] # poolingSize-hop neighborhood that
         # is affected by the summary
     # Readout layer: local linear combination of features
-    modelNoPnlt['dimReadout'] = [1] # Dimension of the fully connected layers
+    modelNoPnltMGNN['dimReadout'] = [1] # Dimension of the fully connected layers
         # after the GCN layers (map); this fully connected layer is applied only
         # at each node, without any further exchanges nor considering all nodes
         # at once, making the architecture entirely local.
     # Graph structure
-    modelNoPnlt['GSO'] = None # To be determined later on, based on data
-    modelNoPnlt['order'] = None # Not used because there is no pooling
+    modelNoPnltMGNN['GSO'] = None # To be determined later on, based on data
+    modelNoPnltMGNN['order'] = None # Not used because there is no pooling
     
     #\\\ TRAINER
 
-    modelNoPnlt['trainer'] = training.TrainerSingleNode
+    modelNoPnltMGNN['trainer'] = training.TrainerSingleNode
     
     #\\\ EVALUATOR
     
-    modelNoPnlt['evaluator'] = evaluation.evaluateSingleNode
+    modelNoPnltMGNN['evaluator'] = evaluation.evaluateSingleNode
     
     #\\\ LOSS FUNCTION
     
-    modelNoPnlt['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
+    modelNoPnltMGNN['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
 
     #\\\ Save Values:
-    writeVarValues(varsFile, modelNoPnlt)
-    modelList += [modelNoPnlt['name']]
-    modelLegend[modelNoPnlt['name']] = 'MultiGNN'
+    writeVarValues(varsFile, modelNoPnltMGNN)
+    modelList += [modelNoPnltMGNN['name']]
+    modelLegend[modelNoPnltMGNN['name']] = 'MultiGNN'
 
 
 #\\\\\\\\\\\\\\\\\\\\\\\
@@ -436,75 +436,75 @@ if doILpenaltyMGNN:
 
     #\\\ Basic parameters for all the Local GNN architectures
     
-    modelILpnl1 = {} # Model parameters for the Local GNN (LclGNN)
-    modelILpnl1['name'] = 'MGNN ILpnl 0.1'
-    modelILpnl1['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
+    modelMGNNILpnl01 = {} # Model parameters for the Local GNN (LclGNN)
+    modelMGNNILpnl01['name'] = 'MGNNILpnl01'
+    modelMGNNILpnl01['device'] = 'cuda:0' if (useGPU and torch.cuda.is_available()) \
                                      else 'cpu'
     
     #\\\ ARCHITECTURE
     
     # Chosen architecture
-    modelILpnl1['archit'] = archit.MultiGNN
+    modelMGNNILpnl01['archit'] = archit.MultiGNN
     # Graph convolutional parameters
-    modelILpnl1['dimNodeSignals'] = [1, 64] # Features per layer
-    modelILpnl1['nFilterTaps'] = [3] # Number of filter taps per layer
-    modelILpnl1['bias'] = True # Decide whether to include a bias term
+    modelMGNNILpnl01['dimNodeSignals'] = [1, 64] # Features per layer
+    modelMGNNILpnl01['nFilterTaps'] = [3] # Number of filter taps per layer
+    modelMGNNILpnl01['bias'] = True # Decide whether to include a bias term
     # Nonlinearity
-    modelILpnl1['nonlinearity'] = nn.ReLU # Selected nonlinearity
+    modelMGNNILpnl01['nonlinearity'] = nn.ReLU # Selected nonlinearity
     # Pooling
-    modelILpnl1['poolingFunction'] = gml.NoPool # Summarizing function
-    modelILpnl1['nSelectedNodes'] = None # To be determined later on
-    modelILpnl1['poolingSize'] = [1] # poolingSize-hop neighborhood that
+    modelMGNNILpnl01['poolingFunction'] = gml.NoPool # Summarizing function
+    modelMGNNILpnl01['nSelectedNodes'] = None # To be determined later on
+    modelMGNNILpnl01['poolingSize'] = [1] # poolingSize-hop neighborhood that
         # is affected by the summary
     # Readout layer: local linear combination of features
-    modelILpnl1['dimReadout'] = [1] # Dimension of the fully connected layers
+    modelMGNNILpnl01['dimReadout'] = [1] # Dimension of the fully connected layers
         # after the GCN layers (map); this fully connected layer is applied only
         # at each node, without any further exchanges nor considering all nodes
         # at once, making the architecture entirely local.
     # Graph structure
-    modelILpnl1['GSO'] = None # To be determined later on, based on data
-    modelILpnl1['order'] = None # Not used because there is no pooling
+    modelMGNNILpnl01['GSO'] = None # To be determined later on, based on data
+    modelMGNNILpnl01['order'] = None # Not used because there is no pooling
     
     #\\\ TRAINER
 
-    modelILpnl1['trainer'] = training.TrainerSingleNode
+    modelMGNNILpnl01['trainer'] = training.TrainerSingleNode
     
     #\\\ EVALUATOR
     
-    modelILpnl1['evaluator'] = evaluation.evaluateSingleNode
+    modelMGNNILpnl01['evaluator'] = evaluation.evaluateSingleNode
     
     #\\\ LOSS FUNCTION
     
-    modelILpnl1['penalty'] = ('ILconstant', 0.1) # Penalty function name, and
+    modelMGNNILpnl01['penalty'] = ('ILconstant', 0.1) # Penalty function name, and
         # penalty multiplier
-    modelILpnl1['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
+    modelMGNNILpnl01['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
 
     #\\\ Save Values:
-    writeVarValues(varsFile, modelILpnl1)
-    modelList += [modelILpnl1['name']]
-    modelLegend[modelILpnl1['name']] = 'MGNN 0.1 (IL)'
+    writeVarValues(varsFile, modelMGNNILpnl01)
+    modelList += [modelMGNNILpnl01['name']]
+    modelLegend[modelMGNNILpnl01['name']] = 'MGNN 0.1 (IL)'
     
     #\\\/// Model 2: 0.5 penalty \\\///
     
-    modelILpnl2 = deepcopy(modelILpnl1)
-    modelILpnl2['name'] = 'MGNN ILpnl 0.5'
-    modelILpnl2['penalty'] = ('ILconstant', 0.5) # Penalty function name, and
+    modelMGNNILpnl05 = deepcopy(modelMGNNILpnl01)
+    modelMGNNILpnl05['name'] = 'MGNNILpnl05'
+    modelMGNNILpnl05['penalty'] = ('ILconstant', 0.5) # Penalty function name, and
         # penalty multiplier
-    modelILpnl2['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
-    writeVarValues(varsFile, modelILpnl2)
-    modelList += [modelILpnl2['name']]
-    modelLegend[modelILpnl2['name']] = 'MGNN 0.5 (IL)'
+    modelMGNNILpnl05['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
+    writeVarValues(varsFile, modelMGNNILpnl05)
+    modelList += [modelMGNNILpnl05['name']]
+    modelLegend[modelMGNNILpnl05['name']] = 'MGNN 0.5 (IL)'
     
     #\\\/// Model 3: 2 penalty \\\///
     
-    modelILpnl3 = deepcopy(modelILpnl1)
-    modelILpnl3['name'] = 'MGNN ILpnl 1.0'
-    modelILpnl3['penalty'] = ('ILconstant', 1.) # Penalty function name, and
+    modelMGNNILpnl10 = deepcopy(modelMGNNILpnl01)
+    modelMGNNILpnl10['name'] = 'MGNNILpnl10'
+    modelMGNNILpnl10['penalty'] = ('ILconstant', 1.) # Penalty function name, and
         # penalty multiplier
-    modelILpnl3['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
-    writeVarValues(varsFile, modelILpnl3)
-    modelList += [modelILpnl3['name']]
-    modelLegend[modelILpnl3['name']] = 'MGNN 1.0 (IL)'
+    modelMGNNILpnl10['lossFunction'] = loss.adaptExtraDimensionLoss(lossFunction)
+    writeVarValues(varsFile, modelMGNNILpnl10)
+    modelList += [modelMGNNILpnl10['name']]
+    modelLegend[modelMGNNILpnl10['name']] = 'MGNN 1.0 (IL)'
 
 ###########
 # LOGGING #
@@ -832,6 +832,8 @@ for n in range(nSimPoints):
             # Do not forget to add the GSO to the input parameters of the archit
             modelDict['GSO'] = S
             # Add the number of nodes for the no-pooling part
+            nNodes = S1.shape[0]
+
             modelDict['nSelectedNodes'] = [nNodes]
             
             ################
@@ -892,7 +894,6 @@ for n in range(nSimPoints):
         #                    TRAINING                                       #
         #                                                                   #
         #####################################################################
-        
         for thisModel in modelsGNN.keys():
             
             if doPrint:

@@ -1906,7 +1906,7 @@ class GraphFilter(nn.Module):
         return reprString
 
 class MultiGraphFilter(nn.Module):
-    def __init__(self, GSOs, f_in=1, f_out=1, f_edge=1, device = 'cpu', bias = True):
+    def __init__(self, GSOs, f_in=1, f_out=1, f_edge=1, bias = True):
         """
         A multigraph filter layer.
         Args:
@@ -1921,9 +1921,8 @@ class MultiGraphFilter(nn.Module):
         self.f_in = f_in
         self.f_out = f_out
         self.f_edge = f_edge
-        self.device = device
         # Create parameters:
-        self.weight = nn.parameter.Parameter(torch.Tensor(self.f_out, self.f_edge, len(self.GSOs) + 1, self.f_in))
+        self.weight = nn.parameter.Parameter(torch.Tensor(self.f_out, self.f_edge, len(self.GSOs[0]) + 1, self.f_in))
         if bias:
             self.bias = nn.parameter.Parameter(torch.Tensor(self.f_out, 1))
         else:
@@ -1933,7 +1932,7 @@ class MultiGraphFilter(nn.Module):
 
     def reset_parameters(self):
         # Taken from _ConvNd initialization of parameters:
-        stdv = 1. / math.sqrt(self.G * (len(self.GSOs) + 1))
+        stdv = 1. / math.sqrt(self.f_in * (len(self.GSOs) + 1))
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
@@ -1968,7 +1967,7 @@ class MultiGraphFilter(nn.Module):
         # with matrix multiplication that yields z = x * S with shape
         # B x E x K x G x N.
         # For this, we first add the corresponding dimensions
-        x = torch.unsqueeze(x,1).permute(0,1,3,2)
+        x = torch.unsqueeze(x,1)
         z = torch.unsqueeze(x,2).repeat(1, E, 1, 1, 1) 
         # We need to repeat along the E dimension, because for k=0, S_{e} = I for
         # all e, and therefore, the same signal values have to be used along all
@@ -1991,11 +1990,10 @@ class MultiGraphFilter(nn.Module):
         
         # DENSE
         for k in range(len(S)):
-            xS = torch.zeros(B,E,G,N).to(self.x.device)
+            xS = torch.zeros(B,E,G,N).to(x.device)
             xS = torch.matmul(x, S[k])  # B x E x G x N
             xS = xS.reshape([B, E, 1, G, N])  # B x E x 1 x G x N
             z = torch.cat((z, xS), dim=2)  # B x E x k x G x N
-        
         # This output z is of size B x E x K x G x N
         # Now we have the x*S_{e}^{k} product, and we need to multiply with the
         # filter taps.
@@ -2004,13 +2002,14 @@ class MultiGraphFilter(nn.Module):
         # z to be B x N x E x K x G and reshape it to B x N x EKG (remember we
         # always reshape the last dimensions), and then make h be E x K x G x F and
         # reshape it to EKG x F, and then multiply
+
         y = torch.matmul(z.permute(0,4,1,2,3).reshape([B, N, E * K * G]), h.reshape([E * K * G, F])).permute(0,2,1)
         # y = z.squeeze().reshape(B,G,N)
         # And permute again to bring it from B x N x F to B x F x N.
         # Finally, add the bias
         if b is not None:
             y = y + b
-        return y.permute(0,2,1)
+        return y
 
 class SpectralGF(nn.Module):
     """
