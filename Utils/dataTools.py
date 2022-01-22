@@ -2025,8 +2025,8 @@ class MovieLens(_data):
                 
         #   And finally, sparsify it (nearest neighbors)
         self.adjacencyMatrix = graph.sparsifyGraph(W, 'NN', self.kNN)
-        # Now, we create the genre adjacency matrix
 
+        # Now, we create the genre adjacency matrix
         normalizedMatrix = self.compute_movie_genre_correlations(self.movieGenres, self.samples['train']['signals'])
         normalizedMatrix = normalizedMatrix.reshape([1, N, N])
         nodesToKeep = [] # List of nodes to keep after some of them might have
@@ -2274,11 +2274,11 @@ class MovieLens(_data):
         return self.incompleteMatrix
     
     def getGraph(self):
-        
+
         return self.adjacencyMatrix
 
     def getGenreGraph(self):
-        
+
         return self.genreMatrix
     
     def getMovieTitles(self):

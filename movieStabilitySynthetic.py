@@ -134,7 +134,7 @@ saveSeed(randomStates, saveDir)
 ########
 
 useGPU = True # If true, and GPU is available, use it.
-useLaplacian = True # Decide to use the Laplacian as the GSO
+useLaplacian = False # Decide to use the Laplacian as the GSO
 
 epsMin = 1e-3 # Minimum value of perturbation
 epsMax = 1e0 # Maximum value of perturbation
@@ -242,9 +242,9 @@ writeVarValues(varsFile,
     
 # Select desired architectures
 doLinearFlt = True
-doNoPenaltyGNN = True
-doNoPenaltyMGNN = True
-doILpenaltyMGNN = True
+doNoPenaltyGNN = False
+doNoPenaltyMGNN = False
+doILpenaltyMGNN = False
 
 # In this section, we determine the (hyper)parameters of models that we are
 # going to train. This only sets the parameters. The architectures need to be
@@ -734,19 +734,15 @@ for n in range(nSimPoints):
     
         # Create graph
         adjacencyMatrix = data.getGraph()
-    
-    
         G1 = graphTools.Graph('adjacency', adjacencyMatrix.shape[0],
                              {'adjacencyMatrix': adjacencyMatrix})
         G1.computeGFT() # Compute the GFT of the stored GSO
 
         genreMatrix = data.getGenreGraph()
         G2 = graphTools.Graph('adjacency', genreMatrix.shape[0],
-                             {'adjacencyMatrix': adjacencyMatrix})
+                             {'adjacencyMatrix': genreMatrix})
         G2.computeGFT() # Compute the GFT of the stored GSO
 
-
-    
         # Once data is completely formatted and in appropriate fashion, change its
         # type to torch
         data.astype(torch.float64)
@@ -819,11 +815,9 @@ for n in range(nSimPoints):
                 SL1 = graphTools.normalizeLaplacian(G1.L)
                 EL1, _ = graphTools.computeGFT(SL1, order = 'increasing')
                 S1 = 2 * SL1/np.max(np.real(EL1)) - np.eye(G1.N)
-
                 SL2 = graphTools.normalizeLaplacian(G2.L)
                 EL2, _ = graphTools.computeGFT(SL2, order = 'increasing')
                 S2 = 2 * SL2/np.max(np.real(EL2)) - np.eye(G2.N)
-
                 S = np.stack((S1, S2), axis = 0)
             else:
                 S1 = G1.S.copy()/np.max(np.real(G1.E))
@@ -1022,7 +1016,7 @@ for n in range(nSimPoints):
             
             for p in range(nPerturb):
             
-                # Get the used GSO
+                # Get the adjacency
                 #thisS = modelsGNN[thisModel].archit.S.data.cpu().numpy() # ExNxN
                 thisS = S.copy()
                 nEdgeFeatures = thisS.shape[0] 
@@ -1061,15 +1055,15 @@ for n in range(nSimPoints):
                 #   Normalize Shat
                 if useLaplacian:
                     for e in range(nEdgeFeatures):
-                        LhatRel = graphTools.adjacencyToLaplacian(ShatRel[e])
-                        LhatRel = graphTools.normalizeLaplacian(LhatRel)
+                        # LhatRel = graphTools.adjacencyToLaplacian(ShatRel[e])
+                        LhatRel = graphTools.normalizeLaplacian(ShatRel[e])
                         egvs, _ = graphTools.computeGFT(LhatRel,
                                                         order = 'increasing')
                         ShatRel[e] = 2 * LhatRel/np.max(np.real(egvs)) \
                                                                 - np.eye(nNodes)
                         
-                        LhatAbs = graphTools.adjacencyToLaplacian(ShatAbs[e])
-                        LhatAbs = graphTools.normalizeLaplacian(LhatAbs)
+                        # LhatAbs = graphTools.adjacencyToLaplacian(ShatAbs[e])
+                        LhatAbs = graphTools.normalizeLaplacian(ShatAbs[e])
                         egvs, _ = graphTools.computeGFT(LhatAbs,
                                                         order = 'increasing')
                         ShatAbs[e] = 2 * LhatAbs/np.max(np.real(egvs)) \
@@ -1260,7 +1254,6 @@ if doFigs:
     for thisModel in modelList:
         eRel[thisModel] = np.array(eRel[thisModel]) # nSimPoints x nDataSplits x nPerturb
         eAbs[thisModel] = np.array(eAbs[thisModel]) # nSimPoints x nDataSplits x nPerturb
-        
         thisEpsRel = np.mean(eRel[thisModel], axis = 2) # nSimPoints x nDataSplits
         epsRel[:,l] = np.mean(thisEpsRel, axis = 1) # nSimPoints
         thisEpsAbs = np.mean(eAbs[thisModel], axis = 2) # nSimPoints x nDataSplits

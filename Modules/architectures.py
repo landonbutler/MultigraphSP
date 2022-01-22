@@ -1663,7 +1663,7 @@ class MultiGNN(nn.Module):
         return np.max(np.min(ILconstants, axis=1))
     
     def LipschitzConstant(self):
-        ITERS = 2
+        ITERS = 20
         numOpers = self.S.shape[0]
         Es = []
         for i in range(ITERS):
